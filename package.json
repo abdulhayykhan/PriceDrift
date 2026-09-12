@@ -1,0 +1,12 @@
+{
+  "name": "pricedrift",
+  "version": "1.0.0",
+  "description": "Browser-based housing analytics implementing Linear & Logistic Regression from scratch in vanilla JavaScript",
+  "type": "module",
+  "scripts": {
+    "test": "node tests/models.test.js",
+    "preprocess": "node scripts/data/preprocess.js"
+  },
+  "keywords": ["machine-learning", "linear-regression", "logistic-regression", "vanilla-js"],
+  "license": "MIT"
+}

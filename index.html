@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PriceDrift — In-Browser Housing Analytics & ML from Scratch</title>
+  <meta name="description" content="Dual Linear and Logistic Regression implemented entirely from scratch in vanilla JavaScript. Predicts house prices and fast-sale probabilities with live canvas training visualization.">
+  <link rel="stylesheet" href="styles/main.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2338bdf8'><path d='M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z'/></svg>">
+</head>
+<body>
+
+  <!-- App Header -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand-wrap">
+        <div class="brand-icon">PD</div>
+        <div>
+          <h1 class="brand-title">PriceDrift <span class="brand-badge">Vanilla JS ML</span></h1>
+          <p class="brand-desc">Scratch Linear &amp; Logistic Regression &bull; USA Housing Dataset</p>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <button type="button" class="data-disclosure-pill" id="data-disclosure-pill" title="Review data proxy disclosure">
+          <span>⚠️</span> <span>Synthetic Data Disclosure</span>
+        </button>
+        <button type="button" class="btn btn-secondary" id="btn-open-about">
+          About &amp; Math
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Global Alert for Divergence or Error Warnings -->
+  <div class="global-alert" id="global-alert" role="alert"></div>
+
+  <!-- Main Application Container -->
+  <main class="main-container">
+
+    <!-- Top Section: Hyperparameters & Live Canvas Convergence -->
+    <section class="dashboard-top-grid">
+      <!-- Left: Hyperparameters & Training Controls -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">Training Controls</h2>
+            <p class="card-subtitle">Batch Gradient Descent Optimizer</p>
+          </div>
+          <span class="status-badge status-idle" id="training-status-badge">Ready to Train</span>
+        </div>
+
+        <!-- Model Target Selector -->
+        <div class="model-choice-wrap">
+          <input type="radio" id="model-both" name="model-choice" value="both" checked>
+          <label for="model-both" class="model-choice-label">Train Both</label>
+
+          <input type="radio" id="model-lin" name="model-choice" value="linear">
+          <label for="model-lin" class="model-choice-label">Linear (Price)</label>
+
+          <input type="radio" id="model-log" name="model-choice" value="logistic">
+          <label for="model-log" class="model-choice-label">Logistic (Fast)</label>
+        </div>
+
+        <!-- Hyperparameter Form -->
+        <form class="hp-form" onsubmit="return false;">
+          <!-- Learning Rate -->
+          <div class="hp-group">
+            <div class="hp-label-row">
+              <label for="hp-lr-slider">Learning Rate (&alpha;)</label>
+            </div>
+            <div class="hp-slider-row">
+              <input type="range" id="hp-lr-slider" min="0.001" max="0.300" step="0.005" value="0.050" class="app-slider">
+              <input type="number" id="hp-lr-num" min="0.001" max="0.500" step="0.005" value="0.050" class="app-number-input">
+            </div>
+          </div>
+
+          <!-- Epochs -->
+          <div class="hp-group">
+            <div class="hp-label-row">
+              <label for="hp-epochs-slider">Max Epochs (Cap: 2000)</label>
+            </div>
+            <div class="hp-slider-row">
+              <input type="range" id="hp-epochs-slider" min="20" max="1000" step="10" value="200" class="app-slider">
+              <input type="number" id="hp-epochs-num" min="10" max="2000" step="10" value="200" class="app-number-input">
+            </div>
+          </div>
+
+          <!-- L2 Regularization Toggle -->
+          <div class="toggle-row">
+            <span class="hp-label-row"><label for="hp-reg-toggle">L2 Ridge Regularization</label></span>
+            <label class="switch">
+              <input type="checkbox" id="hp-reg-toggle">
+              <span class="slider-switch"></span>
+            </label>
+          </div>
+
+          <!-- Regularization Lambda -->
+          <div class="hp-group" id="hp-lambda-group" style="display: none;">
+            <div class="hp-label-row">
+              <label for="hp-lambda-slider">Penalty Strength (&lambda;)</label>
+            </div>
+            <div class="hp-slider-row">
+              <input type="range" id="hp-lambda-slider" min="0.1" max="50.0" step="0.5" value="5.0" class="app-slider">
+              <input type="number" id="hp-lambda-num" min="0.1" max="100.0" step="0.5" value="5.0" class="app-number-input">
+            </div>
+          </div>
+
+          <!-- Button Actions -->
+          <div class="controls-btn-group">
+            <button type="button" class="btn btn-primary" id="btn-train">
+              <span>▶</span> <span>Train Models</span>
+            </button>
+            <button type="button" class="btn btn-secondary" id="btn-pause" disabled>
+              <span>⏸</span> <span>Pause</span>
+            </button>
+            <button type="button" class="btn btn-secondary" id="btn-reset">
+              <span>↺</span> <span>Reset</span>
+            </button>
+            <button type="button" class="btn btn-ghost" id="btn-instant" style="grid-column: span 2;" title="Train synchronously without animation">
+              ⚡ Instant Train (Skip Animation)
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Right: Live Canvas Training Convergence -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">Live Training Convergence</h2>
+            <p class="card-subtitle">Real-Time Cost vs. Epoch Animation on HTML5 Canvas</p>
+          </div>
+          <div class="footer-badges">
+            <span class="pill-badge"><strong id="stat-train-count">4,000</strong> Train</span>
+            <span class="pill-badge"><strong id="stat-test-count">1,000</strong> Test</span>
+          </div>
+        </div>
+
+        <div class="canvas-wrap">
+          <canvas id="training-canvas"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- Middle Section: Interactive Prediction Panel -->
+    <section class="prediction-section">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">Interactive Property Valuation &amp; Fast-Sale Estimator</h2>
+            <p class="card-subtitle">Adjust house attributes to generate real-time standardized predictions</p>
+          </div>
+        </div>
+
+        <!-- Rendered by PredictionPanel module -->
+        <div id="prediction-container"></div>
+      </div>
+    </section>
+
+    <!-- Bottom Section: Model Insights & Evaluation -->
+    <section class="insights-grid">
+      <!-- Left: Linear Regression Insights -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">Linear Regression: Learned Weights</h2>
+            <p class="card-subtitle">Test Set Performance &amp; Feature Importance Proxy</p>
+          </div>
+        </div>
+
+        <div class="metrics-grid" style="grid-template-columns: repeat(3, 1fr);">
+          <div class="metric-card">
+            <span class="metric-label">Test R&sup2;</span>
+            <span class="metric-value" id="metric-r2">--</span>
+            <span class="metric-sub">Variance Explained</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Test RMSE</span>
+            <span class="metric-value" id="metric-rmse">$ --</span>
+            <span class="metric-sub">Mean Dollar Error</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Test MSE</span>
+            <span class="metric-value" id="metric-mse">--</span>
+            <span class="metric-sub">Dollars Squared</span>
+          </div>
+        </div>
+
+        <div id="coefficients-container"></div>
+      </div>
+
+      <!-- Right: Logistic Regression Insights -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">Logistic Regression: Confusion Matrix</h2>
+            <p class="card-subtitle">Evaluation on 1,000 Unseen Test Samples</p>
+          </div>
+        </div>
+
+        <!-- Rendered by ConfusionMatrixView module -->
+        <div id="confusion-matrix-container"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Modal: About & Methodology Disclosure -->
+  <div class="modal" id="about-modal"></div>
+
+  <!-- Footer -->
+  <footer class="app-footer">
+    <div class="footer-inner">
+      <div>
+        <strong>PriceDrift</strong> &bull; Client-Side Machine Learning from Scratch
+      </div>
+      <div class="footer-badges">
+        <span class="pill-badge">Zero ML Libraries</span>
+        <span class="pill-badge">Vanilla ES6 JS</span>
+        <span class="pill-badge">Client-Side Computation</span>
+        <span class="pill-badge">Static Vercel Host</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- App Bootstrap -->
+  <script type="module" src="scripts/main.js"></script>
+</body>
+</html>
