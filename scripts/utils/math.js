@@ -1,9 +1,9 @@
 // scripts/utils/math.js
-// Custom linear algebra, statistics, and loss calculations implemented from scratch in vanilla JS.
-// NO ML libraries or external dependencies.
+// Lightweight inference and display utilities for PriceDrift.
+// Training routines moved to Python (ml/).
 
 /**
- * Computes the dot product of two vectors of equal length.
+ * Computes inner dot product of two equal-length vectors for inference.
  * @param {number[]} u 
  * @param {number[]} v 
  * @returns {number}
@@ -17,92 +17,7 @@ export function dot(u, v) {
 }
 
 /**
- * Multiplies a matrix X [m x d] with a vector w [d], returning a vector of length m.
- * @param {number[][]} X 
- * @param {number[]} w 
- * @returns {number[]}
- */
-export function matVecMul(X, w) {
-  const m = X.length;
-  const result = new Array(m);
-  for (let i = 0; i < m; i++) {
-    let sum = 0;
-    const row = X[i];
-    for (let j = 0; j < w.length; j++) {
-      sum += row[j] * w[j];
-    }
-    result[i] = sum;
-  }
-  return result;
-}
-
-/**
- * Computes X^T * v where X is [m x d] and v is [m], returning a vector of length d.
- * Equivalent to sum_i(v[i] * X[i, j]) for each feature j.
- * @param {number[][]} X 
- * @param {number[]} v 
- * @returns {number[]}
- */
-export function matTransposeVecMul(X, v) {
-  const m = X.length;
-  if (m === 0) return [];
-  const d = X[0].length;
-  const result = new Array(d).fill(0);
-
-  for (let i = 0; i < m; i++) {
-    const vi = v[i];
-    const row = X[i];
-    for (let j = 0; j < d; j++) {
-      result[j] += vi * row[j];
-    }
-  }
-  return result;
-}
-
-/**
- * Vector addition: u + v
- * @param {number[]} u 
- * @param {number[]} v 
- * @returns {number[]}
- */
-export function vecAdd(u, v) {
-  const res = new Array(u.length);
-  for (let i = 0; i < u.length; i++) {
-    res[i] = u[i] + v[i];
-  }
-  return res;
-}
-
-/**
- * Vector subtraction: u - v
- * @param {number[]} u 
- * @param {number[]} v 
- * @returns {number[]}
- */
-export function vecSub(u, v) {
-  const res = new Array(u.length);
-  for (let i = 0; i < u.length; i++) {
-    res[i] = u[i] - v[i];
-  }
-  return res;
-}
-
-/**
- * Scalar multiplication: c * v
- * @param {number} c 
- * @param {number[]} v 
- * @returns {number[]}
- */
-export function scalarMul(c, v) {
-  const res = new Array(v.length);
-  for (let i = 0; i < v.length; i++) {
-    res[i] = c * v[i];
-  }
-  return res;
-}
-
-/**
- * Clamps value to [min, max]
+ * Clamps numeric value to [min, max].
  * @param {number} val 
  * @param {number} min 
  * @param {number} max 
@@ -113,7 +28,7 @@ export function clamp(val, min, max) {
 }
 
 /**
- * Numerically stable Sigmoid function with clamping to avoid overflow/underflow.
+ * Numerically stable Sigmoid activation with [-30, 30] clamping.
  * @param {number} z 
  * @returns {number}
  */
@@ -123,128 +38,11 @@ export function sigmoid(z) {
 }
 
 /**
- * Mean of an array of numbers.
- * @param {number[]} arr 
- * @returns {number}
- */
-export function mean(arr) {
-  if (arr.length === 0) return 0;
-  let sum = 0;
-  for (let i = 0; i < arr.length; i++) sum += arr[i];
-  return sum / arr.length;
-}
-
-/**
- * Variance of an array.
- * @param {number[]} arr 
- * @param {number} [precalculatedMean] 
- * @returns {number}
- */
-export function variance(arr, precalculatedMean) {
-  if (arr.length === 0) return 0;
-  const mu = precalculatedMean !== undefined ? precalculatedMean : mean(arr);
-  let sumSq = 0;
-  for (let i = 0; i < arr.length; i++) {
-    sumSq += (arr[i] - mu) * (arr[i] - mu);
-  }
-  return sumSq / arr.length;
-}
-
-/**
- * Standard deviation of an array.
- * @param {number[]} arr 
- * @param {number} [precalculatedMean] 
- * @returns {number}
- */
-export function stdDev(arr, precalculatedMean) {
-  return Math.sqrt(variance(arr, precalculatedMean));
-}
-
-/**
- * Mean Squared Error: (1 / m) * sum((yTrue - yPred)^2)
+ * Computes confusion matrix and metrics from predictions and ground truth.
+ * Allows client-side re-evaluation when the user moves the decision threshold slider.
  * @param {number[]} yTrue 
  * @param {number[]} yPred 
- * @returns {number}
- */
-export function mse(yTrue, yPred) {
-  const m = yTrue.length;
-  if (m === 0) return 0;
-  let sum = 0;
-  for (let i = 0; i < m; i++) {
-    const diff = yTrue[i] - yPred[i];
-    sum += diff * diff;
-  }
-  return sum / m;
-}
-
-/**
- * Root Mean Squared Error.
- * @param {number[]} yTrue 
- * @param {number[]} yPred 
- * @returns {number}
- */
-export function rmse(yTrue, yPred) {
-  return Math.sqrt(mse(yTrue, yPred));
-}
-
-/**
- * R-Squared coefficient of determination: 1 - (SS_res / SS_tot).
- * @param {number[]} yTrue 
- * @param {number[]} yPred 
- * @returns {number}
- */
-export function rSquared(yTrue, yPred) {
-  const m = yTrue.length;
-  if (m === 0) return 0;
-  const yMean = mean(yTrue);
-  let ssRes = 0;
-  let ssTot = 0;
-  for (let i = 0; i < m; i++) {
-    const res = yTrue[i] - yPred[i];
-    const tot = yTrue[i] - yMean;
-    ssRes += res * res;
-    ssTot += tot * tot;
-  }
-  if (ssTot === 0) return 0;
-  return 1 - (ssRes / ssTot);
-}
-
-/**
- * Binary Cross Entropy loss: -1/m * sum(y*ln(p) + (1-y)*ln(1-p)) + L2 penalty.
- * @param {number[]} yTrue 
- * @param {number[]} yProbs 
- * @param {number[]} [weights=[]] 
- * @param {number} [lambda=0] 
- * @returns {number}
- */
-export function binaryCrossEntropy(yTrue, yProbs, weights = [], lambda = 0) {
-  const m = yTrue.length;
-  if (m === 0) return 0;
-  const eps = 1e-15;
-  let lossSum = 0;
-
-  for (let i = 0; i < m; i++) {
-    const y = yTrue[i];
-    const p = clamp(yProbs[i], eps, 1 - eps);
-    lossSum += y * Math.log(p) + (1 - y) * Math.log(1 - p);
-  }
-
-  let l2 = 0;
-  if (lambda > 0 && weights.length > 0) {
-    for (let j = 0; j < weights.length; j++) {
-      l2 += weights[j] * weights[j];
-    }
-    l2 = (lambda / (2 * m)) * l2;
-  }
-
-  return (-lossSum / m) + l2;
-}
-
-/**
- * Computes confusion matrix and classification metrics on predictions.
- * @param {number[]} yTrue 
- * @param {number[]} yPred 
- * @returns {{tp: number, fp: number, tn: number, fn: number, accuracy: number, precision: number, recall: number, f1: number}}
+ * @returns {{tp: number, fp: number, tn: number, fn: number, total: number, accuracy: number, precision: number, recall: number, f1: number}}
  */
 export function confusionMatrix(yTrue, yPred) {
   let tp = 0;

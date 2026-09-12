@@ -1,5 +1,5 @@
 // scripts/ui/controls.js
-// Manages hyperparameter controls, training buttons, pause/resume, and model selection.
+// Manages model selection, regularization variant toggle, and training history replay controls.
 
 export class ControlsManager {
   /**
@@ -13,7 +13,7 @@ export class ControlsManager {
   }
 
   bindEvents() {
-    // Model selection radio/buttons
+    // Model selection radio buttons (both, linear, logistic)
     if (this.els.modelSelects) {
       this.els.modelSelects.forEach(radio => {
         radio.addEventListener('change', (e) => {
@@ -24,51 +24,34 @@ export class ControlsManager {
       });
     }
 
-    // Learning Rate Slider <-> Number sync
-    if (this.els.lrSlider && this.els.lrInput) {
-      this.els.lrSlider.addEventListener('input', (e) => {
-        this.els.lrInput.value = e.target.value;
-      });
-      this.els.lrInput.addEventListener('input', (e) => {
-        this.els.lrSlider.value = e.target.value;
-      });
-    }
-
-    // Epochs Slider <-> Number sync (enforce max cap 2000)
-    if (this.els.epochsSlider && this.els.epochsInput) {
-      this.els.epochsSlider.addEventListener('input', (e) => {
-        this.els.epochsInput.value = Math.min(2000, parseInt(e.target.value) || 10);
-      });
-      this.els.epochsInput.addEventListener('input', (e) => {
-        let val = parseInt(e.target.value) || 10;
-        if (val > 2000) val = 2000;
-        this.els.epochsInput.value = val;
-        this.els.epochsSlider.value = val;
-      });
-    }
-
-    // Regularization toggle & lambda
+    // Regularization toggle (switches between baseline and regularized precomputed runs)
     if (this.els.regToggle) {
       this.els.regToggle.addEventListener('change', (e) => {
-        if (this.els.regLambdaGroup) {
-          this.els.regLambdaGroup.style.display = e.target.checked ? 'flex' : 'none';
+        const isReg = e.target.checked;
+        if (this.els.regStatusLabel) {
+          this.els.regStatusLabel.textContent = isReg
+            ? 'L2 Regularized (Ridge λ=50 / Log λ=10)'
+            : 'Unregularized Baseline (λ=0)';
+        }
+        if (this.callbacks.onVariantChange) {
+          this.callbacks.onVariantChange(isReg);
         }
       });
     }
 
-    if (this.els.lambdaSlider && this.els.lambdaInput) {
-      this.els.lambdaSlider.addEventListener('input', (e) => {
-        this.els.lambdaInput.value = e.target.value;
-      });
-      this.els.lambdaInput.addEventListener('input', (e) => {
-        this.els.lambdaSlider.value = e.target.value;
+    // Replay Speed selector
+    if (this.els.speedSelect) {
+      this.els.speedSelect.addEventListener('change', (e) => {
+        if (this.callbacks.onSpeedChange) {
+          this.callbacks.onSpeedChange(parseFloat(e.target.value) || 1.0);
+        }
       });
     }
 
     // Buttons
-    if (this.els.trainBtn) {
-      this.els.trainBtn.addEventListener('click', () => {
-        if (this.callbacks.onTrain) this.callbacks.onTrain(this.getHyperparameters());
+    if (this.els.replayBtn) {
+      this.els.replayBtn.addEventListener('click', () => {
+        if (this.callbacks.onReplay) this.callbacks.onReplay();
       });
     }
 
@@ -78,44 +61,38 @@ export class ControlsManager {
       });
     }
 
+    if (this.els.skipBtn) {
+      this.els.skipBtn.addEventListener('click', () => {
+        if (this.callbacks.onSkip) this.callbacks.onSkip();
+      });
+    }
+
     if (this.els.resetBtn) {
       this.els.resetBtn.addEventListener('click', () => {
         if (this.callbacks.onReset) this.callbacks.onReset();
       });
     }
-
-    if (this.els.instantBtn) {
-      this.els.instantBtn.addEventListener('click', () => {
-        if (this.callbacks.onInstantTrain) this.callbacks.onInstantTrain(this.getHyperparameters());
-      });
-    }
   }
 
-  getHyperparameters() {
-    return {
-      learningRate: parseFloat(this.els.lrInput?.value || 0.05),
-      epochs: Math.min(2000, parseInt(this.els.epochsInput?.value || 200, 10)),
-      useRegularization: !!this.els.regToggle?.checked,
-      lambda: parseFloat(this.els.lambdaInput?.value || 5.0),
-      selectedModel: document.querySelector('input[name="model-choice"]:checked')?.value || 'both'
-    };
+  getState() {
+    const selectedModel = document.querySelector('input[name="model-choice"]:checked')?.value || 'both';
+    const isRegularized = !!this.els.regToggle?.checked;
+    const speed = parseFloat(this.els.speedSelect?.value || 1.0);
+    return { selectedModel, isRegularized, speed };
   }
 
-  setTrainingState(isTraining, isPaused = false) {
-    if (this.els.trainBtn) {
-      this.els.trainBtn.disabled = isTraining && !isPaused;
-      this.els.trainBtn.textContent = isTraining ? 'Training In Progress...' : 'Train Models';
+  setReplayState(isReplaying, isPaused = false) {
+    if (this.els.replayBtn) {
+      this.els.replayBtn.disabled = isReplaying && !isPaused;
+      this.els.replayBtn.textContent = isReplaying ? 'Replaying...' : 'Replay Training';
     }
     if (this.els.pauseBtn) {
-      this.els.pauseBtn.disabled = !isTraining;
-      this.els.pauseBtn.textContent = isPaused ? 'Resume Training' : 'Pause';
+      this.els.pauseBtn.disabled = !isReplaying;
+      this.els.pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
       this.els.pauseBtn.classList.toggle('btn-warning', isPaused);
     }
-    if (this.els.instantBtn) {
-      this.els.instantBtn.disabled = isTraining;
-    }
-    if (this.els.resetBtn) {
-      this.els.resetBtn.disabled = isTraining;
+    if (this.els.skipBtn) {
+      this.els.skipBtn.disabled = isReplaying && !isPaused;
     }
   }
 
@@ -123,20 +100,6 @@ export class ControlsManager {
     if (this.els.statusBadge) {
       this.els.statusBadge.textContent = message;
       this.els.statusBadge.className = `status-badge status-${type}`;
-    }
-  }
-
-  showWarning(msg) {
-    if (this.els.alertBox) {
-      this.els.alertBox.textContent = msg;
-      this.els.alertBox.style.display = 'block';
-    }
-  }
-
-  clearWarning() {
-    if (this.els.alertBox) {
-      this.els.alertBox.textContent = '';
-      this.els.alertBox.style.display = 'none';
     }
   }
 }

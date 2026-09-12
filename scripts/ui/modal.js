@@ -52,7 +52,7 @@ export class ModalManager {
             <div class="code-block">
               <ol>
                 <li>Compute <code>PricePerRoom = Price / Avg. Area Number of Rooms</code> for every house.</li>
-                <li>Compute the dataset-wide median <code>PricePerRoom</code> ($${Math.round(fastSaleHeuristic.medianPricePerRoom).toLocaleString()}) and median <code>Avg. Area House Age</code> (${fastSaleHeuristic.medianHouseAge.toFixed(2)} years).</li>
+                <li>Compute the training-split median <code>PricePerRoom</code> ($${Math.round(fastSaleHeuristic.medianPricePerRoom).toLocaleString()}) and median <code>Avg. Area House Age</code> (${fastSaleHeuristic.medianHouseAge.toFixed(2)} years).</li>
                 <li>Label <code>FastSale = 1</code> IF and only IF:
                   <div class="formula-callout">
                     <code>(PricePerRoom &lt; $${Math.round(fastSaleHeuristic.medianPricePerRoom).toLocaleString()}) &and; (House Age &lt; ${fastSaleHeuristic.medianHouseAge.toFixed(2)} yrs)</code>
@@ -62,19 +62,19 @@ export class ModalManager {
               </ol>
             </div>
             <p>
-              <strong>Rationale:</strong> In residential real estate economics, properties priced below the room median and featuring newer construction consistently exhibit higher liquidity and velocity. In this dataset, this yields <strong>${fastSaleHeuristic.positiveCount.toLocaleString()}</strong> fast-sale properties (<strong>${(fastSaleHeuristic.positiveRatio * 100).toFixed(1)}%</strong> of the dataset), providing a well-balanced binary target for logistic regression.
+              <strong>Rationale:</strong> In residential real estate economics, properties priced below the room median and featuring newer construction consistently exhibit higher liquidity and velocity. In this dataset, this yields <strong>${(fastSaleHeuristic.positiveRatioTrain * 100).toFixed(1)}%</strong> fast-sale properties in the training split, providing a balanced binary target for logistic regression.
             </p>
           </section>
 
           <section class="modal-section">
             <h3>3. Mathematical Framework & Implementation</h3>
             <p>
-              Both machine learning models and data preprocessing pipelines are implemented <strong>100% from scratch in pure vanilla JavaScript</strong> without external mathematical libraries (no TensorFlow.js, ml.js, or math.js):
+              Both machine learning models are trained <strong>100% from scratch in Python (NumPy only, no scikit-learn or ML libraries)</strong> using vectorized Batch Gradient Descent. The trained parameters are exported as a static JSON bundle, while the browser runs instantaneous client-side inference (dot product and sigmoid) in pure vanilla JavaScript:
             </p>
             <ul>
               <li>
-                <strong>Z-Score Feature Standardization:</strong>
-                <code>x_norm = (x - &mu;) / &sigma;</code>. Gradient descent convergence requires identical feature scales across high-magnitude values (like $80k income vs 5 rooms). The identical scaling parameters are preserved and used during live user inference.
+                <strong>Leakage-Free Z-Score Standardization:</strong>
+                <code>x_norm = (x - &mu;<sub>train</sub>) / &sigma;<sub>train</sub></code>. Parameters are computed exclusively on the 80% training partition, preventing data leakage into the test set or live inference.
               </li>
               <li>
                 <strong>Linear Regression:</strong>

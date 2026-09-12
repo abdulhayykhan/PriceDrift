@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PriceDrift — In-Browser Housing Analytics & ML from Scratch</title>
-  <meta name="description" content="Dual Linear and Logistic Regression implemented entirely from scratch in vanilla JavaScript. Predicts house prices and fast-sale probabilities with live canvas training visualization.">
+  <meta name="description" content="Dual Linear and Logistic Regression trained from scratch in Python (NumPy) with in-browser live inference and training convergence replay.">
   <link rel="stylesheet" href="styles/main.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2338bdf8'><path d='M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z'/></svg>">
 </head>
@@ -16,7 +16,7 @@
       <div class="brand-wrap">
         <div class="brand-icon">PD</div>
         <div>
-          <h1 class="brand-title">PriceDrift <span class="brand-badge">Vanilla JS ML</span></h1>
+          <h1 class="brand-title">PriceDrift <span class="brand-badge">Python ML + JS UI</span></h1>
           <p class="brand-desc">Scratch Linear &amp; Logistic Regression &bull; USA Housing Dataset</p>
         </div>
       </div>
@@ -32,28 +32,28 @@
     </div>
   </header>
 
-  <!-- Global Alert for Divergence or Error Warnings -->
+  <!-- Global Alert for Warnings -->
   <div class="global-alert" id="global-alert" role="alert"></div>
 
   <!-- Main Application Container -->
   <main class="main-container">
 
-    <!-- Top Section: Hyperparameters & Live Canvas Convergence -->
+    <!-- Top Section: Model Controls & Convergence Replay Canvas -->
     <section class="dashboard-top-grid">
-      <!-- Left: Hyperparameters & Training Controls -->
+      <!-- Left: Model Selector & Replay Controls -->
       <div class="card">
         <div class="card-header">
           <div>
-            <h2 class="card-title">Training Controls</h2>
-            <p class="card-subtitle">Batch Gradient Descent Optimizer</p>
+            <h2 class="card-title">Model Controls</h2>
+            <p class="card-subtitle">Convergence Replay &amp; Model Selection</p>
           </div>
-          <span class="status-badge status-idle" id="training-status-badge">Ready to Train</span>
+          <span class="status-badge status-success" id="training-status-badge">Python Trained</span>
         </div>
 
         <!-- Model Target Selector -->
         <div class="model-choice-wrap">
           <input type="radio" id="model-both" name="model-choice" value="both" checked>
-          <label for="model-both" class="model-choice-label">Train Both</label>
+          <label for="model-both" class="model-choice-label">Both Models</label>
 
           <input type="radio" id="model-lin" name="model-choice" value="linear">
           <label for="model-lin" class="model-choice-label">Linear (Price)</label>
@@ -62,73 +62,62 @@
           <label for="model-log" class="model-choice-label">Logistic (Fast)</label>
         </div>
 
-        <!-- Hyperparameter Form -->
+        <!-- Replay & Variant Form -->
         <form class="hp-form" onsubmit="return false;">
-          <!-- Learning Rate -->
-          <div class="hp-group">
-            <div class="hp-label-row">
-              <label for="hp-lr-slider">Learning Rate (&alpha;)</label>
-            </div>
-            <div class="hp-slider-row">
-              <input type="range" id="hp-lr-slider" min="0.001" max="0.300" step="0.005" value="0.050" class="app-slider">
-              <input type="number" id="hp-lr-num" min="0.001" max="0.500" step="0.005" value="0.050" class="app-number-input">
-            </div>
-          </div>
-
-          <!-- Epochs -->
-          <div class="hp-group">
-            <div class="hp-label-row">
-              <label for="hp-epochs-slider">Max Epochs (Cap: 2000)</label>
-            </div>
-            <div class="hp-slider-row">
-              <input type="range" id="hp-epochs-slider" min="20" max="1000" step="10" value="200" class="app-slider">
-              <input type="number" id="hp-epochs-num" min="10" max="2000" step="10" value="200" class="app-number-input">
-            </div>
-          </div>
-
-          <!-- L2 Regularization Toggle -->
+          <!-- L2 Regularization Variant Toggle -->
           <div class="toggle-row">
-            <span class="hp-label-row"><label for="hp-reg-toggle">L2 Ridge Regularization</label></span>
+            <span class="hp-label-row">
+              <label for="hp-reg-toggle">L2 Regularization</label>
+            </span>
             <label class="switch">
               <input type="checkbox" id="hp-reg-toggle">
               <span class="slider-switch"></span>
             </label>
           </div>
+          <div class="variant-description">
+            <span id="reg-status-label">Unregularized Baseline (&lambda;=0)</span>
+          </div>
 
-          <!-- Regularization Lambda -->
-          <div class="hp-group" id="hp-lambda-group" style="display: none;">
+          <!-- Replay Speed Control -->
+          <div class="hp-group" style="margin-top: 0.5rem;">
             <div class="hp-label-row">
-              <label for="hp-lambda-slider">Penalty Strength (&lambda;)</label>
+              <label for="replay-speed-select">Animation Speed</label>
             </div>
-            <div class="hp-slider-row">
-              <input type="range" id="hp-lambda-slider" min="0.1" max="50.0" step="0.5" value="5.0" class="app-slider">
-              <input type="number" id="hp-lambda-num" min="0.1" max="100.0" step="0.5" value="5.0" class="app-number-input">
-            </div>
+            <select id="replay-speed-select" class="app-select">
+              <option value="1.0" selected>1x Normal Speed</option>
+              <option value="2.0">2x Fast Speed</option>
+              <option value="5.0">5x High Speed</option>
+            </select>
+          </div>
+
+          <!-- Educational note -->
+          <div class="replay-note">
+            <small>💡 Models were trained offline via from-scratch Python (NumPy batch GD). Click below to animate the convergence curve recorded during training.</small>
           </div>
 
           <!-- Button Actions -->
           <div class="controls-btn-group">
-            <button type="button" class="btn btn-primary" id="btn-train">
-              <span>▶</span> <span>Train Models</span>
+            <button type="button" class="btn btn-primary" id="btn-replay">
+              <span>▶</span> <span>Replay Training</span>
             </button>
             <button type="button" class="btn btn-secondary" id="btn-pause" disabled>
               <span>⏸</span> <span>Pause</span>
             </button>
-            <button type="button" class="btn btn-secondary" id="btn-reset">
-              <span>↺</span> <span>Reset</span>
+            <button type="button" class="btn btn-secondary" id="btn-skip">
+              <span>⏭</span> <span>Skip to End</span>
             </button>
-            <button type="button" class="btn btn-ghost" id="btn-instant" style="grid-column: span 2;" title="Train synchronously without animation">
-              ⚡ Instant Train (Skip Animation)
+            <button type="button" class="btn btn-ghost" id="btn-reset" style="grid-column: span 2;">
+              <span>↺</span> <span>Clear Chart</span>
             </button>
           </div>
         </form>
       </div>
 
-      <!-- Right: Live Canvas Training Convergence -->
+      <!-- Right: Live Canvas Training Convergence Replay -->
       <div class="card">
         <div class="card-header">
           <div>
-            <h2 class="card-title">Live Training Convergence</h2>
+            <h2 class="card-title">Training Convergence Replay</h2>
             <p class="card-subtitle">Real-Time Cost vs. Epoch Animation on HTML5 Canvas</p>
           </div>
           <div class="footer-badges">
@@ -149,7 +138,7 @@
         <div class="card-header">
           <div>
             <h2 class="card-title">Interactive Property Valuation &amp; Fast-Sale Estimator</h2>
-            <p class="card-subtitle">Adjust house attributes to generate real-time standardized predictions</p>
+            <p class="card-subtitle">Instant in-browser inference (dot product + sigmoid) on standardized features</p>
           </div>
         </div>
 
@@ -213,12 +202,12 @@
   <footer class="app-footer">
     <div class="footer-inner">
       <div>
-        <strong>PriceDrift</strong> &bull; Client-Side Machine Learning from Scratch
+        <strong>PriceDrift</strong> &bull; Python Machine Learning (NumPy) &bull; Vanilla JS Inference
       </div>
       <div class="footer-badges">
         <span class="pill-badge">Zero ML Libraries</span>
-        <span class="pill-badge">Vanilla ES6 JS</span>
-        <span class="pill-badge">Client-Side Computation</span>
+        <span class="pill-badge">Python Batch GD</span>
+        <span class="pill-badge">Client-Side Inference</span>
         <span class="pill-badge">Static Vercel Host</span>
       </div>
     </div>

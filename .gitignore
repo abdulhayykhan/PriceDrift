@@ -1,5 +1,9 @@
 # Dependencies
 node_modules/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

@@ -1,22 +1,27 @@
 // scripts/main.js
-// Application bootstrap: ties dataset, scratch ML models, live charts, and interactive UI together.
+// Application bootstrap: loads pre-trained Python models, handles live inference,
+// and manages training convergence animation replay.
 
-import { LinearRegression } from './models/linearRegression.js';
-import { LogisticRegression } from './models/logisticRegression.js';
+import { dot, sigmoid, confusionMatrix, formatCurrency, formatNumber } from './utils/math.js';
 import { TrainingChart } from './viz/trainingChart.js';
 import { ConfusionMatrixView } from './viz/confusionMatrix.js';
 import { CoefficientsChart } from './viz/coefficientsChart.js';
 import { ControlsManager } from './ui/controls.js';
 import { PredictionPanel } from './ui/predictionPanel.js';
 import { ModalManager } from './ui/modal.js';
-import { formatCurrency, formatNumber } from './utils/math.js';
 
 class App {
   constructor() {
     this.dataset = null;
-    this.linearModel = null;
-    this.logisticModel = null;
 
+    // Active model parameters
+    this.activeLinear = null;
+    this.activeLogistic = null;
+    this.currentThreshold = 0.5;
+    this.isRegularized = false;
+    this.selectedModelChoice = 'both'; // 'both', 'linear', 'logistic'
+
+    // Visualizations & UI
     this.chart = null;
     this.confusionView = null;
     this.coeffChart = null;
@@ -24,19 +29,21 @@ class App {
     this.controls = null;
     this.modal = null;
 
-    this.isTraining = false;
+    // Replay state
+    this.isReplaying = false;
     this.isPaused = false;
-    this.trainingAbortController = null;
-    this.isModelsTrained = false;
+    this.replaySpeed = 1.0;
+    this.replayFrameId = null;
   }
 
   async init() {
     try {
       console.log('PriceDrift initializing...');
       await this.loadDataset();
-      this.initModels();
       this.initUI();
       this.bindGlobalEvents();
+      this.updateActiveModels();
+      this.displayFinalState();
       console.log('PriceDrift initialized successfully.');
     } catch (err) {
       console.error('Initialization error:', err);
@@ -49,7 +56,6 @@ class App {
   }
 
   async loadDataset() {
-    // Relative path works both on local static server and on Vercel deployment
     const res = await fetch('./scripts/data/housing-data.json');
     if (!res.ok) {
       throw new Error(`HTTP error ${res.status} loading dataset JSON`);
@@ -58,92 +64,74 @@ class App {
     console.log(`Loaded dataset: ${this.dataset.metadata.totalSamples} total records.`);
   }
 
-  initModels() {
-    this.linearModel = new LinearRegression({
-      learningRate: 0.05,
-      epochs: 200,
-      useRegularization: false
-    });
-
-    this.logisticModel = new LogisticRegression({
-      learningRate: 0.1,
-      epochs: 250,
-      useRegularization: false,
-      threshold: 0.5
-    });
-  }
-
   initUI() {
     const meta = this.dataset.metadata;
 
-    // 1. Chart
+    // 1. Live Training Chart
     const canvas = document.getElementById('training-canvas');
     this.chart = new TrainingChart(canvas);
 
-    // 2. Confusion Matrix View
+    // 2. Confusion Matrix View (with dynamic client-side threshold slider)
     const confContainer = document.getElementById('confusion-matrix-container');
     this.confusionView = new ConfusionMatrixView(confContainer, {
       onThresholdChange: (th) => {
-        this.logisticModel.threshold = th;
-        if (this.isModelsTrained) {
-          const evalRes = this.logisticModel.evaluate(this.dataset.test.X, this.dataset.test.y_fast, th);
-          this.confusionView.update(evalRes);
-        }
+        this.currentThreshold = th;
+        this.recalculateConfusionMatrix(th);
         if (this.predictionPanel) {
           this.predictionPanel.setDecisionThreshold(th);
         }
       }
     });
 
-    // 3. Coefficients Chart
+    // 3. Coefficients Importance Chart
     const coeffContainer = document.getElementById('coefficients-container');
     this.coeffChart = new CoefficientsChart(coeffContainer);
-    this.coeffChart.render([], [], 0, meta.featureStats, meta.priceStats);
 
-    // 4. Prediction Panel
+    // 4. Interactive Prediction Panel
     const predContainer = document.getElementById('prediction-container');
     this.predictionPanel = new PredictionPanel(predContainer, meta, {
       onPredict: () => this.runInference()
     });
 
-    // 5. Modal
+    // 5. Methodology & Disclosure Modal
     const modalEl = document.getElementById('about-modal');
     this.modal = new ModalManager(modalEl, meta);
 
-    // 6. Controls
+    // 6. Controls Manager (Replay Mode)
     this.controls = new ControlsManager({
-      lrSlider: document.getElementById('hp-lr-slider'),
-      lrInput: document.getElementById('hp-lr-num'),
-      epochsSlider: document.getElementById('hp-epochs-slider'),
-      epochsInput: document.getElementById('hp-epochs-num'),
+      modelSelects: document.querySelectorAll('input[name="model-choice"]'),
       regToggle: document.getElementById('hp-reg-toggle'),
-      regLambdaGroup: document.getElementById('hp-lambda-group'),
-      lambdaSlider: document.getElementById('hp-lambda-slider'),
-      lambdaInput: document.getElementById('hp-lambda-num'),
-      trainBtn: document.getElementById('btn-train'),
+      regStatusLabel: document.getElementById('reg-status-label'),
+      speedSelect: document.getElementById('replay-speed-select'),
+      replayBtn: document.getElementById('btn-replay'),
       pauseBtn: document.getElementById('btn-pause'),
+      skipBtn: document.getElementById('btn-skip'),
       resetBtn: document.getElementById('btn-reset'),
-      instantBtn: document.getElementById('btn-instant'),
-      statusBadge: document.getElementById('training-status-badge'),
-      alertBox: document.getElementById('global-alert'),
-      modelSelects: document.querySelectorAll('input[name="model-choice"]')
+      statusBadge: document.getElementById('training-status-badge')
     }, {
-      onTrain: (hp) => this.startTraining(hp, false),
-      onInstantTrain: (hp) => this.startTraining(hp, true),
+      onModelSelect: (choice) => {
+        this.selectedModelChoice = choice;
+        this.displayFinalState();
+      },
+      onVariantChange: (isReg) => {
+        this.isRegularized = isReg;
+        this.updateActiveModels();
+        this.displayFinalState();
+      },
+      onSpeedChange: (speed) => {
+        this.replaySpeed = speed;
+      },
+      onReplay: () => this.startReplay(),
       onPauseResume: () => this.togglePause(),
-      onReset: () => this.resetApp(),
-      onModelSelect: (choice) => this.handleModelChoiceChange(choice)
+      onSkip: () => this.skipToEnd(),
+      onReset: () => this.resetReplay()
     });
 
     // Populate dataset summary counters in UI
     const trainCountEl = document.getElementById('stat-train-count');
     const testCountEl = document.getElementById('stat-test-count');
-    const totalCountEl = document.getElementById('stat-total-count');
     if (trainCountEl) trainCountEl.textContent = meta.trainCount.toLocaleString();
     if (testCountEl) testCountEl.textContent = meta.testCount.toLocaleString();
-    if (totalCountEl) totalCountEl.textContent = meta.totalSamples.toLocaleString();
-
-    this.updateLinearMetricsCard(null);
   }
 
   bindGlobalEvents() {
@@ -158,79 +146,81 @@ class App {
     }
   }
 
-  handleModelChoiceChange(choice) {
-    console.log('Model selection changed to:', choice);
+  updateActiveModels() {
+    const models = this.dataset.trainedModels;
+    this.activeLinear = this.isRegularized ? models.linear_regularized : models.linear;
+    this.activeLogistic = this.isRegularized ? models.logistic_regularized : models.logistic;
   }
 
-  togglePause() {
-    if (!this.isTraining) return;
-    this.isPaused = !this.isPaused;
-    this.controls.setTrainingState(this.isTraining, this.isPaused);
-    this.controls.setStatus(this.isPaused ? 'Paused' : 'Training...', this.isPaused ? 'warning' : 'active');
-  }
+  displayFinalState() {
+    this.cancelReplay();
 
-  resetApp() {
-    if (this.isTraining) {
-      this.isTraining = false;
-      this.isPaused = false;
-    }
-    this.isModelsTrained = false;
-    this.initModels();
-    this.chart.clear();
-    this.controls.clearWarning();
-    this.controls.setTrainingState(false, false);
-    this.controls.setStatus('Ready to Train', 'idle');
-    this.updateLinearMetricsCard(null);
-    this.coeffChart.render([], [], 0, this.dataset.metadata.featureStats, this.dataset.metadata.priceStats);
-    this.confusionView.initStructure();
-    this.predictionPanel.updateResults({ isTrained: false });
-  }
-
-  async startTraining(hyperparams, isInstant = false) {
-    if (this.isTraining) return;
-
-    this.controls.clearWarning();
-    const { learningRate, epochs, useRegularization, lambda, selectedModel } = hyperparams;
-
-    const trainLinear = selectedModel === 'both' || selectedModel === 'linear';
-    const trainLogistic = selectedModel === 'both' || selectedModel === 'logistic';
-
-    // Configure Linear Model
-    if (trainLinear) {
-      this.linearModel.learningRate = learningRate;
-      this.linearModel.epochs = epochs;
-      this.linearModel.useRegularization = useRegularization;
-      this.linearModel.lambda = lambda;
-      this.linearModel.initializeWeights(this.dataset.metadata.featureNames.length);
-    }
-
-    // Configure Logistic Model
-    if (trainLogistic) {
-      this.logisticModel.learningRate = learningRate;
-      this.logisticModel.epochs = epochs;
-      this.logisticModel.useRegularization = useRegularization;
-      this.logisticModel.lambda = lambda;
-      this.logisticModel.initializeWeights(this.dataset.metadata.featureNames.length);
-    }
-
-    // Prepare chart series
+    // Render full convergence curves on chart
     const seriesList = [];
-    let linSeriesIdx = -1;
-    let logSeriesIdx = -1;
+    const showLinear = this.selectedModelChoice === 'both' || this.selectedModelChoice === 'linear';
+    const showLogistic = this.selectedModelChoice === 'both' || this.selectedModelChoice === 'logistic';
 
-    if (trainLinear) {
-      linSeriesIdx = seriesList.length;
+    if (showLinear) {
       seriesList.push({
-        name: 'Linear Reg (MSE)',
+        name: this.isRegularized ? 'Linear Reg (Ridge λ=50)' : 'Linear Reg (MSE)',
+        color: 'rgb(56, 189, 248)',
+        data: [...this.activeLinear.history]
+      });
+    }
+
+    if (showLogistic) {
+      seriesList.push({
+        name: this.isRegularized ? 'Logistic Reg (λ=10)' : 'Logistic Reg (BCE)',
+        color: 'rgb(168, 85, 247)',
+        data: [...this.activeLogistic.history]
+      });
+    }
+
+    this.chart.setSeries(seriesList);
+
+    // Update metrics & coefficient displays
+    this.updateLinearMetricsCard(this.activeLinear.testMetrics);
+    this.coeffChart.render(
+      this.dataset.metadata.featureNames,
+      this.activeLinear.weights,
+      this.activeLinear.bias,
+      this.dataset.metadata.featureStats,
+      this.dataset.metadata.priceStats
+    );
+
+    this.recalculateConfusionMatrix(this.currentThreshold);
+    this.runInference();
+    this.controls.setStatus('Python Trained', 'success');
+  }
+
+  startReplay() {
+    this.cancelReplay();
+
+    this.isReplaying = true;
+    this.isPaused = false;
+    this.controls.setReplayState(true, false);
+    this.controls.setStatus('Replaying...', 'active');
+
+    const showLinear = this.selectedModelChoice === 'both' || this.selectedModelChoice === 'linear';
+    const showLogistic = this.selectedModelChoice === 'both' || this.selectedModelChoice === 'logistic';
+
+    const seriesList = [];
+    let linIdx = -1;
+    let logIdx = -1;
+
+    if (showLinear) {
+      linIdx = seriesList.length;
+      seriesList.push({
+        name: this.isRegularized ? 'Linear (Ridge)' : 'Linear (MSE)',
         color: 'rgb(56, 189, 248)',
         data: []
       });
     }
 
-    if (trainLogistic) {
-      logSeriesIdx = seriesList.length;
+    if (showLogistic) {
+      logIdx = seriesList.length;
       seriesList.push({
-        name: 'Logistic Reg (BCE)',
+        name: this.isRegularized ? 'Logistic (Ridge)' : 'Logistic (BCE)',
         color: 'rgb(168, 85, 247)',
         data: []
       });
@@ -238,120 +228,98 @@ class App {
 
     this.chart.setSeries(seriesList);
 
-    if (isInstant) {
-      this.controls.setStatus('Instant Training...', 'active');
-      if (trainLinear) this.linearModel.train(this.dataset.train.X, this.dataset.train.y_price_norm);
-      if (trainLogistic) this.logisticModel.train(this.dataset.train.X, this.dataset.train.y_fast);
+    const linHist = this.activeLinear.history;
+    const logHist = this.activeLogistic.history;
+    const maxEpochs = Math.max(
+      showLinear ? linHist.length : 0,
+      showLogistic ? logHist.length : 0
+    );
 
-      // Populate chart series with histories
-      if (trainLinear && linSeriesIdx >= 0) {
-        seriesList[linSeriesIdx].data = [...this.linearModel.history];
-      }
-      if (trainLogistic && logSeriesIdx >= 0) {
-        seriesList[logSeriesIdx].data = [...this.logisticModel.history];
-      }
-      this.chart.render();
-      this.onTrainingComplete();
-      return;
-    }
-
-    // Chunked Asynchronous Loop for Live Animation
-    this.isTraining = true;
-    this.isPaused = false;
-    this.controls.setTrainingState(true, false);
-    this.controls.setStatus('Training...', 'active');
-
-    const totalEpochs = epochs;
-    let currentEpoch = 0;
-    const epochsPerFrame = totalEpochs > 500 ? 5 : (totalEpochs > 200 ? 3 : 2);
+    let currentStep = 0;
 
     const step = () => {
-      if (!this.isTraining) return;
+      if (!this.isReplaying) return;
 
       if (this.isPaused) {
-        requestAnimationFrame(step);
+        this.replayFrameId = requestAnimationFrame(step);
         return;
       }
 
-      for (let i = 0; i < epochsPerFrame && currentEpoch < totalEpochs; i++) {
-        currentEpoch++;
-
-        if (trainLinear) {
-          const res = this.linearModel.trainStep(this.dataset.train.X, this.dataset.train.y_price_norm);
-          if (res.diverged) {
-            this.handleDivergence('Linear Regression');
-            return;
-          }
-          this.chart.addPoint(linSeriesIdx, res.epoch, res.cost);
+      // Step multiple points depending on replay speed
+      const pointsPerFrame = Math.max(1, Math.round(2 * this.replaySpeed));
+      for (let p = 0; p < pointsPerFrame && currentStep < maxEpochs; p++) {
+        if (showLinear && currentStep < linHist.length) {
+          const pt = linHist[currentStep];
+          this.chart.addPoint(linIdx, pt.epoch, pt.cost);
         }
-
-        if (trainLogistic) {
-          const res = this.logisticModel.trainStep(this.dataset.train.X, this.dataset.train.y_fast);
-          if (res.diverged) {
-            this.handleDivergence('Logistic Regression');
-            return;
-          }
-          this.chart.addPoint(logSeriesIdx, res.epoch, res.cost);
+        if (showLogistic && currentStep < logHist.length) {
+          const pt = logHist[currentStep];
+          this.chart.addPoint(logIdx, pt.epoch, pt.cost);
         }
+        currentStep++;
       }
 
-      this.controls.setStatus(`Training (Epoch ${currentEpoch}/${totalEpochs})...`, 'active');
+      this.controls.setStatus(`Replay (Epoch ${currentStep}/${maxEpochs})`, 'active');
 
-      if (currentEpoch < totalEpochs) {
-        requestAnimationFrame(step);
+      if (currentStep < maxEpochs) {
+        this.replayFrameId = requestAnimationFrame(step);
       } else {
-        this.onTrainingComplete();
+        this.isReplaying = false;
+        this.controls.setReplayState(false, false);
+        this.controls.setStatus('Replay Complete', 'success');
       }
     };
 
-    requestAnimationFrame(step);
+    this.replayFrameId = requestAnimationFrame(step);
   }
 
-  handleDivergence(modelName) {
-    this.isTraining = false;
-    this.controls.setTrainingState(false, false);
-    this.controls.setStatus('Diverged', 'error');
-    this.controls.showWarning(
-      `⚠️ ${modelName} diverged! The cost grew to infinity or NaN because the learning rate is too high. Please decrease the learning rate (e.g. try \u03B1 = 0.01 or 0.05) and click Train again.`
-    );
+  togglePause() {
+    if (!this.isReplaying) return;
+    this.isPaused = !this.isPaused;
+    this.controls.setReplayState(this.isReplaying, this.isPaused);
+    this.controls.setStatus(this.isPaused ? 'Paused' : 'Replaying...', this.isPaused ? 'warning' : 'active');
   }
 
-  onTrainingComplete() {
-    this.isTraining = false;
+  skipToEnd() {
+    this.cancelReplay();
+    this.displayFinalState();
+  }
+
+  resetReplay() {
+    this.cancelReplay();
+    this.chart.clear();
+    this.controls.setStatus('Ready to Replay', 'idle');
+  }
+
+  cancelReplay() {
+    if (this.replayFrameId) {
+      cancelAnimationFrame(this.replayFrameId);
+      this.replayFrameId = null;
+    }
+    this.isReplaying = false;
     this.isPaused = false;
-    this.isModelsTrained = true;
-    this.controls.setTrainingState(false, false);
-    this.controls.setStatus('Training Complete', 'success');
+    this.controls.setReplayState(false, false);
+  }
 
-    const meta = this.dataset.metadata;
-    const test = this.dataset.test;
+  recalculateConfusionMatrix(threshold) {
+    const testX = this.dataset.test.X;
+    const testYFast = this.dataset.test.y_fast;
+    const w = this.activeLogistic.weights;
+    const b = this.activeLogistic.bias;
 
-    // Evaluate Linear Model on Test Set
-    if (this.linearModel.weights.length > 0) {
-      const linEval = this.linearModel.evaluate(
-        test.X,
-        test.y_price_norm,
-        test.y_price,
-        meta.priceStats
-      );
-      this.updateLinearMetricsCard(linEval);
-      this.coeffChart.render(
-        meta.featureNames,
-        this.linearModel.weights,
-        this.linearModel.bias,
-        meta.featureStats,
-        meta.priceStats
-      );
+    // Fast client-side probability calculation for test set
+    const preds = new Array(testX.length);
+    for (let i = 0; i < testX.length; i++) {
+      const z = dot(w, testX[i]) + b;
+      const prob = sigmoid(z);
+      preds[i] = prob >= threshold ? 1 : 0;
     }
 
-    // Evaluate Logistic Model on Test Set
-    if (this.logisticModel.weights.length > 0) {
-      const logEval = this.logisticModel.evaluate(test.X, test.y_fast, this.logisticModel.threshold);
-      this.confusionView.update(logEval);
-    }
-
-    // Update Live Inference
-    this.runInference();
+    const metrics = confusionMatrix(testYFast, preds);
+    this.confusionView.update({
+      ...metrics,
+      threshold
+    });
   }
 
   updateLinearMetricsCard(evalRes) {
@@ -372,32 +340,19 @@ class App {
   }
 
   runInference() {
-    if (!this.predictionPanel) return;
-
-    if (!this.isModelsTrained) {
-      this.predictionPanel.updateResults({ isTrained: false });
-      return;
-    }
+    if (!this.predictionPanel || !this.activeLinear || !this.activeLogistic) return;
 
     const xStd = this.predictionPanel.getStandardizedFeatures();
     const meta = this.dataset.metadata;
 
-    // Linear Prediction
-    let predPrice = meta.priceStats.median;
-    if (this.linearModel && this.linearModel.weights.length > 0) {
-      const normY = this.linearModel.predictSample(xStd);
-      // Unscale to raw USD
-      predPrice = normY * meta.priceStats.stdDev + meta.priceStats.mean;
-    }
+    // 1. Linear Inference: y_norm = dot(w, xStd) + bias
+    const linNormY = dot(this.activeLinear.weights, xStd) + this.activeLinear.bias;
+    const predPrice = linNormY * meta.priceStats.stdDev + meta.priceStats.mean;
 
-    // Logistic Prediction
-    let fastProb = 0;
-    let isFast = false;
-    if (this.logisticModel && this.logisticModel.weights.length > 0) {
-      const logRes = this.logisticModel.predictSample(xStd);
-      fastProb = logRes.probability;
-      isFast = logRes.isFastSale;
-    }
+    // 2. Logistic Inference: p = sigmoid(dot(w, xStd) + bias)
+    const logZ = dot(this.activeLogistic.weights, xStd) + this.activeLogistic.bias;
+    const fastProb = sigmoid(logZ);
+    const isFast = fastProb >= this.currentThreshold;
 
     this.predictionPanel.updateResults({
       predictedPrice: predPrice,

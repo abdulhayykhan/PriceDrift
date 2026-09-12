@@ -366,6 +366,40 @@ input:checked + .slider-switch:before {
   box-shadow: 0 0 6px rgba(56, 189, 248, 0.6);
 }
 
+.variant-description {
+  font-size: 0.75rem;
+  color: var(--accent-cyan);
+  font-family: var(--font-mono);
+  margin-top: -0.25rem;
+}
+
+.replay-note {
+  background: var(--bg-inset);
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin: 0.25rem 0;
+}
+
+.app-select {
+  width: 100%;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  padding: 0.45rem 0.65rem;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  outline: none;
+  cursor: pointer;
+}
+
+.app-select:focus {
+  border-color: var(--border-focus);
+}
+
 /* Control Buttons */
 .controls-btn-group {
   display: grid;
